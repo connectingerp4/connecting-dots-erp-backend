@@ -489,8 +489,8 @@ app.post("/api/submit", async (req, res) => {
   const contact = contactInput?.trim();
   // Trim countryCode only if it exists
   const countryCode = countryCodeInput?.trim();
-  const coursename = coursenameInput?.trim() || 'N/A';
-  const location = locationInput?.trim() || 'N/A';
+  const coursename = coursenameInput?.trim() ;
+  const location = locationInput?.trim() ;
 
   // --- Backend Validation ---
   if (!name || !email || !contact) {
