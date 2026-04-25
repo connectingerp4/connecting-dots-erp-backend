@@ -600,6 +600,104 @@ app.get('/api/leads/count', authMiddleware, requireRole(['SuperAdmin', 'Admin'])
   }
 });
 
+// === Bulk Lead Operations ===
+// Bulk update leads
+app.put('/api/leads/bulk-update', authMiddleware, requireRole(['SuperAdmin', 'Admin', 'EditMode']), async (req, res) => {
+  try {
+    const { leadIds, updateData } = req.body;
+
+    if (!Array.isArray(leadIds) || leadIds.length === 0) {
+      return res.status(400).json({ message: 'No lead IDs provided.' });
+    }
+
+    if (!updateData || Object.keys(updateData).length === 0) {
+      return res.status(400).json({ message: 'No update data provided.' });
+    }
+
+    // Filter update fields
+    const allowedFields = ['status', 'notes', 'assignedTo', 'contactedScore', 'contactedComment'];
+    const updateFields = {};
+    for (const key of allowedFields) {
+      if (updateData[key] !== undefined) updateFields[key] = updateData[key];
+    }
+
+    // Get original lead data for audit logs
+    const originalLeads = await User.find({ _id: { $in: leadIds } }).lean();
+
+    // Extract basic info for audit logs
+    const leadsInfo = originalLeads.map(lead => ({
+      id: lead._id,
+      name: lead.name,
+      email: lead.email,
+      contact: lead.contact
+    }));
+
+    // Update documents
+    const result = await User.updateMany(
+      { _id: { $in: leadIds } },
+      { $set: updateFields }
+    );
+
+    // Enhanced audit logging
+    await logAction(req.admin.id, 'bulk_update_leads', 'User', {
+      count: result.modifiedCount,
+      updateFields,
+      affectedLeads: leadsInfo
+    });
+
+    res.status(200).json({
+      message: `Updated ${result.modifiedCount} leads.`,
+      modifiedCount: result.modifiedCount
+    });
+  } catch (e) {
+    res.status(500).json({ message: 'Error updating leads.', error: e.message });
+  }
+});
+
+// Bulk delete leads
+const bulkDeleteLeadsHandler = async (req, res) => {
+  try {
+    const { leadIds } = req.body;
+
+    if (!Array.isArray(leadIds) || leadIds.length === 0) {
+      return res.status(400).json({ message: 'No lead IDs provided.' });
+    }
+
+    // Get lead data before deletion for audit logs
+    const leadsToDelete = await User.find({ _id: { $in: leadIds } }).lean();
+
+    // Extract basic info for audit logs
+    const leadsInfo = leadsToDelete.map(lead => ({
+      id: lead._id,
+      name: lead.name,
+      email: lead.email,
+      contact: lead.contact,
+      status: lead.status
+    }));
+
+    // Delete documents
+    const result = await User.deleteMany({ _id: { $in: leadIds } });
+
+    // Enhanced audit logging
+    await logAction(req.admin.id, 'bulk_delete_leads', 'User', {
+      count: result.deletedCount,
+      leadIds,
+      deletedLeads: leadsInfo,
+      deletedAt: new Date()
+    });
+
+    res.status(200).json({
+      message: `Deleted ${result.deletedCount} leads.`,
+      deletedCount: result.deletedCount
+    });
+  } catch (e) {
+    res.status(500).json({ message: 'Error deleting leads.', error: e.message });
+  }
+};
+
+app.delete('/api/leads/bulk-delete', authMiddleware, requireRole(['SuperAdmin', 'Admin']), bulkDeleteLeadsHandler);
+app.post('/api/leads/bulk-delete', authMiddleware, requireRole(['SuperAdmin', 'Admin']), bulkDeleteLeadsHandler);
+
 // === Update Lead Route (Admin Protected) ===
 app.put("/api/leads/:id", authMiddleware, requireRole(['SuperAdmin','Admin','EditMode']), async (req, res) => {
   try {
@@ -753,101 +851,6 @@ app.delete("/api/leads/:id", authMiddleware, requireRole(['SuperAdmin','Admin'])
   } catch (error) {
     console.error(`Error deleting lead with ID (${req.params.id}):`, error);
     res.status(500).json({ message: "Internal Server Error occurred while deleting.", error: error.message });
-  }
-});
-
-// === Bulk Lead Operations ===
-// Bulk update leads
-app.put('/api/leads/bulk-update', authMiddleware, requireRole(['SuperAdmin', 'Admin', 'EditMode']), async (req, res) => {
-  try {
-    const { leadIds, updateData } = req.body;
-
-    if (!Array.isArray(leadIds) || leadIds.length === 0) {
-      return res.status(400).json({ message: 'No lead IDs provided.' });
-    }
-
-    if (!updateData || Object.keys(updateData).length === 0) {
-      return res.status(400).json({ message: 'No update data provided.' });
-    }
-
-    // Filter update fields
-    const allowedFields = ['status', 'notes', 'assignedTo', 'contactedScore', 'contactedComment'];
-    const updateFields = {};
-    for (const key of allowedFields) {
-      if (updateData[key] !== undefined) updateFields[key] = updateData[key];
-    }
-
-    // Get original lead data for audit logs
-    const originalLeads = await User.find({ _id: { $in: leadIds } }).lean();
-
-    // Extract basic info for audit logs
-    const leadsInfo = originalLeads.map(lead => ({
-      id: lead._id,
-      name: lead.name,
-      email: lead.email,
-      contact: lead.contact
-    }));
-
-    // Update documents
-    const result = await User.updateMany(
-      { _id: { $in: leadIds } },
-      { $set: updateFields }
-    );
-
-    // Enhanced audit logging
-    await logAction(req.admin.id, 'bulk_update_leads', 'User', {
-      count: result.modifiedCount,
-      updateFields,
-      affectedLeads: leadsInfo
-    });
-
-    res.status(200).json({
-      message: `Updated ${result.modifiedCount} leads.`,
-      modifiedCount: result.modifiedCount
-    });
-  } catch (e) {
-    res.status(500).json({ message: 'Error updating leads.', error: e.message });
-  }
-});
-
-// Bulk delete leads
-app.delete('/api/leads/bulk-delete', authMiddleware, requireRole(['SuperAdmin', 'Admin']), async (req, res) => {
-  try {
-    const { leadIds } = req.body;
-
-    if (!Array.isArray(leadIds) || leadIds.length === 0) {
-      return res.status(400).json({ message: 'No lead IDs provided.' });
-    }
-
-    // Get lead data before deletion for audit logs
-    const leadsToDelete = await User.find({ _id: { $in: leadIds } }).lean();
-
-    // Extract basic info for audit logs
-    const leadsInfo = leadsToDelete.map(lead => ({
-      id: lead._id,
-      name: lead.name,
-      email: lead.email,
-      contact: lead.contact,
-      status: lead.status
-    }));
-
-    // Delete documents
-    const result = await User.deleteMany({ _id: { $in: leadIds } });
-
-    // Enhanced audit logging
-    await logAction(req.admin.id, 'bulk_delete_leads', 'User', {
-      count: result.deletedCount,
-      leadIds,
-      deletedLeads: leadsInfo,
-      deletedAt: new Date()
-    });
-
-    res.status(200).json({
-      message: `Deleted ${result.deletedCount} leads.`,
-      deletedCount: result.deletedCount
-    });
-  } catch (e) {
-    res.status(500).json({ message: 'Error deleting leads.', error: e.message });
   }
 });
 
